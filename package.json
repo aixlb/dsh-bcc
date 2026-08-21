@@ -1,0 +1,85 @@
+{
+  "name": "dsh-bcc",
+  "version": "0.1.0",
+  "description": "包拆拆 for DeepSeek Harness: video → script / storyboard / style guide. Uses the session model (recommend deepseek-v4-flash-vision-exp); never ships its own API keys.",
+  "license": "MIT",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": "./lib/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "skills",
+    "cordis.patch.yml",
+    "LICENSE",
+    "README.md",
+    "README.zh.md"
+  ],
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/parse-script.test.ts",
+    "check": "npm run typecheck && npm test && npm pack --dry-run",
+    "prepare": "tsdown"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "cordis",
+    "storyboard",
+    "video"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aixlb/dsh-bcc.git"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "slots"
+      ]
+    }
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.1",
+    "docx": "^9.6.1",
+    "exceljs": "^4.4.0",
+    "tar": "^7.5.0",
+    "undici": "^6.25.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-tools": "^0.1.1-rc.1",
+    "react": "^18.0.0 || ^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-settings": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-tools": "^0.1.1-rc.1",
+    "@types/node": "^22.20.0",
+    "@types/react": "^18.3.0",
+    "tsdown": "^0.22.2",
+    "tsx": "^4.20.0",
+    "typescript": "^5.7.2"
+  }
+}
