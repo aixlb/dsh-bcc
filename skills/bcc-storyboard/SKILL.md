@@ -12,9 +12,9 @@ description: 包拆拆拆分镜。把视频切成镜头、抽关键帧、逐镜�
 ## 流程
 
 1. `bcc_probe` 了解时长。
-2. `bcc_shots`（`frames=true`）切镜并抽关键帧。工作台会显示时间轴和预览。
+2. `bcc_shots`（`frames=true`）切镜并抽关键帧。用户在 `/bcc-storyboard` 命令卡片里配的切割参数要原样传给本工具。
 3. 用户说切太碎 → 再调 `bcc_shots`，把 `minGap` 调大；切太粗 → `minGap`/`hardMin` 调小。指定秒数加切/删切 → `bcc_set_cuts`。
-4. 用 `bcc_read_frames` **分批**（每次 4–8 镜）看关键帧，写 `分镜.json`。镜数必须等于 shots 输出。
+4. 用 `bcc_read_frames source=shots` **分批**（每次 4–8 镜）看关键帧，写 `分镜.json`。镜数必须等于 shots 输出。`remaining>0` 时继续读，不要只看前几镜。
 5. `bcc_export` kind=`storyboard`。
 
 可选：`bcc_master` id=`shanzhiyin` kind=`storyboard` 作分析框架，忽略其中的交互流程规则。

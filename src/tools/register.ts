@@ -3,9 +3,12 @@ import { existsSync } from 'node:fs'
 import path from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { getVideoInfo } from '../lib/video.js'
+import { getVideoInfo, formatHMS } from '../lib/video.js'
 import { detectAndCaptureShots, round2, shotsFromCutTimes, toBccShots } from '../lib/shots.js'
 import { extractFrame } from '../lib/storyboard.js'
+import { captureScriptSamples } from '../lib/script-frames.js'
+import { analyzeScriptCoverage } from '../lib/script-coverage.js'
+import type { ScriptSample } from '../lib/types.js'
 import { parseScript } from '../lib/parse-script.js'
 import { generateScriptDocx } from '../lib/script-export.js'
 import { generateStoryboardXlsx } from '../lib/storyboard.js'
@@ -80,7 +83,7 @@ export function registerTools(ctx: Context, configOf: () => PluginConfig): void 
   ctx.tools.register(defineTool({
     name: 'bcc_shots',
     description:
-      'Detect shot cuts in a video (smart or scene) and optionally extract keyframes. Creates or updates a 包拆拆 project. Chat can re-run with larger minGap if cuts are too fine, or smaller if too coarse.',
+      'Detect shot cuts and optionally extract one keyframe per cut. For 拆剧本 this is NOT enough — after this, you MUST call bcc_sample_script then read source=script until remaining=0. Chat can re-run with larger minGap if cuts are too fine.',
     parameters: {
       video: { type: 'string', required: true, description: 'Absolute path to the video' },
       projectId: { type: 'string', description: 'Existing project id to update' },
@@ -187,29 +190,89 @@ export function registerTools(ctx: Context, configOf: () => PluginConfig): void 
   }))
 
   ctx.tools.register(defineTool({
-    name: 'bcc_read_frames',
+    name: 'bcc_sample_script',
     description:
-      `Send keyframe images to the current model in small batches (max ${MAX_READ_FRAMES}). Requires a vision-capable model such as ${RECOMMENDED_MODEL}. Does not change the user model; if the model cannot see images, this tool fails with a switch hint.`,
+      'Dense still sampling for 拆剧本. Pulls several frames inside each shot (not just the cut) so plot inside long shots is not dropped. Call this AFTER bcc_shots, BEFORE reading frames for a script. Then walk bcc_read_frames source=script until remaining=0.',
     parameters: {
       projectId: { type: 'string', required: true },
-      from: { type: 'number', description: '1-based start shot index (default 1)' },
-      count: { type: 'number', description: `How many shots to include (default 4, max ${MAX_READ_FRAMES})` },
-      indices: { type: 'array', items: { type: 'number' }, description: 'Explicit 1-based shot numbers; overrides from/count' },
+      intervalSec: { type: 'number', description: 'Target seconds between samples inside a shot (default 1.5)' },
+      maxPerShot: { type: 'number', description: 'Cap frames per shot (default 8)' },
+      maxTotal: { type: 'number', description: 'Cap total samples (default 200)' },
+      cwd: { type: 'string' },
+    },
+    output: {
+      schema: { type: 'json' },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+    },
+    async execute(args, exec) {
+      const cwd = cwdOf(args)
+      const project = await loadProject(String(args.projectId), cwd)
+      if (!project.shots.length) throw new Error('项目还没有镜头。请先 bcc_shots（frames=true）。')
+      const outputDir = path.join(path.resolve(cwd, '.dsh-bcc', 'projects', project.id), 'script-frames')
+      const samples = await captureScriptSamples({
+        videoPath: project.videoPath,
+        durationSec: project.durationSec,
+        shots: project.shots,
+        outputDir,
+        intervalSec: typeof args.intervalSec === 'number' ? args.intervalSec : undefined,
+        maxPerShot: typeof args.maxPerShot === 'number' ? args.maxPerShot : undefined,
+        maxTotal: typeof args.maxTotal === 'number' ? args.maxTotal : undefined,
+        signal: exec.signal,
+      })
+      const next = await saveProject({ ...project, scriptSamples: samples }, cwd)
+      const batches = Math.ceil(samples.length / 6)
+      return asJson({
+        projectId: next.id,
+        sampleCount: samples.length,
+        durationSec: round2(project.durationSec),
+        intervalHint: '1.5s inside each shot, extra start/end frames on long shots',
+        next: {
+          tool: 'bcc_read_frames',
+          source: 'script',
+          from: 1,
+          count: 6,
+          batches,
+          instruction: `共 ${samples.length} 张剧本采样帧，约 ${batches} 批。必须从 from=1 起连续读完 remaining=0，每批把该时间段写入剧本后再读下一批。禁止只看前几批就交稿。`,
+        },
+        samples: samples.map((s) => ({ index: s.index, t: s.t, shotIndex: s.shotIndex })),
+      })
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'bcc_read_frames',
+    description:
+      `Send video stills to the current vision model in small batches (max ${MAX_READ_FRAMES}). For 拆剧本 use source=script AFTER bcc_sample_script, and KEEP CALLING with the returned nextFrom until remaining=0. Default source=shots is one frame per cut (storyboard only). Never skip the rest of the timeline.`,
+    parameters: {
+      projectId: { type: 'string', required: true },
+      source: { type: 'string', enum: ['shots', 'script'], description: 'shots = one keyframe per cut (分镜). script = dense 拆剧本 samples from bcc_sample_script.' },
+      from: { type: 'number', description: '1-based start index (default 1)' },
+      count: { type: 'number', description: `How many stills this batch (default 6, max ${MAX_READ_FRAMES})` },
+      indices: { type: 'array', items: { type: 'number' }, description: 'Explicit 1-based indexes; overrides from/count' },
       cwd: { type: 'string' },
     },
     output: {
       schema: { type: 'json' },
       render: (_args, value) => {
         const rec = value as {
-          frames?: Array<{ index: number; startSec: number; endSec: number; attachment?: ImageAttachmentRef }>
+          frames?: Array<{
+            index: number
+            t?: number
+            startSec?: number
+            endSec?: number
+            label?: string
+            attachment?: ImageAttachmentRef
+          }>
           hint?: string
+          coverage?: { remaining?: number; nextFrom?: number; instruction?: string }
         }
         const blocks: ContentBlock[] = []
         if (rec.hint) blocks.push({ type: 'text', text: rec.hint })
-        const frames = rec.frames ?? []
-        const lines = frames.map((f) => `#${f.index} ${f.startSec.toFixed(2)}s–${f.endSec.toFixed(2)}s`)
-        blocks.push({ type: 'text', text: `关键帧 ${lines.join(', ')}` })
-        for (const f of frames) {
+        if (rec.coverage?.instruction) blocks.push({ type: 'text', text: rec.coverage.instruction })
+        for (const f of rec.frames ?? []) {
+          const caption = f.label
+            ?? (f.t != null ? `[${formatHMS(f.t)}]` : `#${f.index} ${f.startSec?.toFixed(2)}s–${f.endSec?.toFixed(2)}s`)
+          blocks.push({ type: 'text', text: caption })
           if (f.attachment) blocks.push({ type: 'image', attachment: f.attachment })
         }
         return blocks
@@ -223,39 +286,124 @@ export function registerTools(ctx: Context, configOf: () => PluginConfig): void 
       }
       const cwd = cwdOf(args)
       const project = await loadProject(String(args.projectId), cwd)
-      if (project.shots.every((s) => !s.frame || !existsSync(s.frame))) {
-        throw new Error('项目还没有关键帧。请先调用 bcc_shots 并设置 frames=true。')
+      const source = args.source === 'script' || (!args.source && (project.scriptSamples?.length ?? 0) > 0)
+        ? 'script'
+        : 'shots'
+
+      type Item = { index: number; t: number; startSec: number; endSec: number; path: string; shotIndex?: number }
+      let items: Item[] = []
+      if (source === 'script') {
+        const samples = project.scriptSamples ?? []
+        if (!samples.length) {
+          throw new Error('还没有剧本采样帧。拆剧本请先调用 bcc_sample_script，不要只用每镜一张切点图。')
+        }
+        items = samples.map((s: ScriptSample) => {
+          const shot = project.shots.find((x) => x.index === s.shotIndex)
+          return {
+            index: s.index,
+            t: s.t,
+            startSec: shot?.startSec ?? s.t,
+            endSec: shot?.endSec ?? s.t,
+            path: s.path,
+            shotIndex: s.shotIndex,
+          }
+        })
+      } else {
+        if (project.shots.every((s) => !s.frame || !existsSync(s.frame))) {
+          throw new Error('项目还没有关键帧。请先调用 bcc_shots 并设置 frames=true。')
+        }
+        items = project.shots.map((shot) => ({
+          index: shot.index,
+          t: shot.thumbT ?? shot.startSec,
+          startSec: shot.startSec,
+          endSec: shot.endSec,
+          path: shot.frame ?? '',
+          shotIndex: shot.index,
+        }))
       }
+
       let indices: number[]
       if (Array.isArray(args.indices) && args.indices.length) {
         indices = args.indices.map(Number)
       } else {
         const from = Math.max(1, typeof args.from === 'number' ? args.from : 1)
-        const count = Math.min(MAX_READ_FRAMES, Math.max(1, typeof args.count === 'number' ? args.count : 4))
+        const count = Math.min(MAX_READ_FRAMES, Math.max(1, typeof args.count === 'number' ? args.count : 6))
         indices = []
         for (let i = 0; i < count; i++) indices.push(from + i)
       }
-      indices = [...new Set(indices)].filter((n) => n >= 1 && n <= project.shots.length).slice(0, MAX_READ_FRAMES)
-      const selected = indices
-        .map((index) => ({ index, shot: project.shots[index - 1] }))
-        .filter((row) => row.shot.frame && existsSync(row.shot.frame))
-      if (selected.length === 0) throw new Error('指定镜没有可用关键帧。')
+      indices = [...new Set(indices)].filter((n) => n >= 1 && n <= items.length).slice(0, MAX_READ_FRAMES)
+      const selected = indices.map((index) => items[index - 1]).filter((row) => row.path && existsSync(row.path))
+      if (selected.length === 0) throw new Error('指定范围没有可用帧。')
       const refs = await attachments.saveImages(await Promise.all(selected.map(async (row) => ({
-        data: new Uint8Array(await fs.readFile(row.shot.frame as string)),
+        data: new Uint8Array(await fs.readFile(row.path)),
         mediaType: 'image/jpeg' as const,
-        name: `shot-${row.index}.jpg`,
+        name: `${source}-${row.index}.jpg`,
       }))))
+      const lastIndex = selected[selected.length - 1].index
+      const remaining = Math.max(0, items.length - lastIndex)
+      const nextFrom = remaining > 0 ? lastIndex + 1 : null
+      const instruction = remaining > 0
+        ? `本批 ${selected.length} 张（${selected[0].index}–${lastIndex} / 共 ${items.length}）。还剩 ${remaining} 张未看。看完本批后立刻把这段时间写入剧本，然后立刻再调 bcc_read_frames source=${source} from=${nextFrom} count=6。remaining=0 之前禁止交稿。`
+        : `已看完全部 ${items.length} 张。接下来用 bcc_script_coverage 自查时间轴缺口和体量，缺口段再补看。`
+
       return asJson({
         projectId: project.id,
+        source,
         recommendedModel: RECOMMENDED_MODEL,
-        hint: `若你看不见这些图片，说明当前模型无 image 模态。${VISION_REQUIRED_MESSAGE}`,
+        hint: `每张图上方文字是时间戳。若看不见图：${VISION_REQUIRED_MESSAGE}`,
+        coverage: {
+          total: items.length,
+          from: selected[0].index,
+          to: lastIndex,
+          returned: selected.length,
+          remaining,
+          nextFrom,
+          done: remaining === 0,
+          instruction,
+        },
         frames: selected.map((row, i) => ({
           index: row.index,
-          startSec: row.shot.startSec,
-          endSec: row.shot.endSec,
-          path: row.shot.frame ?? null,
+          t: row.t,
+          startSec: row.startSec,
+          endSec: row.endSec,
+          shotIndex: row.shotIndex ?? null,
+          path: row.path,
+          label: `[${formatHMS(row.t)}] 镜${row.shotIndex ?? row.index} · ${row.index}/${items.length}`,
           attachment: refs[i],
         })),
+      })
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'bcc_script_coverage',
+    description:
+      'Check a 剧本.md against video duration: timeline gaps, missing head/tail, and character volume (≈300 chars/min). If complete=false, re-read the gap ranges with bcc_read_frames and patch the script. Do not export until complete=true.',
+    parameters: {
+      from: { type: 'string', required: true, description: 'Path to 剧本.md' },
+      projectId: { type: 'string', description: 'Used to read duration if durationSec omitted' },
+      durationSec: { type: 'number' },
+      cwd: { type: 'string' },
+    },
+    output: {
+      schema: { type: 'json' },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+    },
+    async execute(args) {
+      const cwd = cwdOf(args)
+      const from = path.resolve(String(args.from))
+      if (!existsSync(from)) throw new Error(`找不到剧本: ${from}`)
+      const text = (await fs.readFile(from, 'utf-8')).replace(/^\uFEFF/, '')
+      let durationSec = typeof args.durationSec === 'number' ? args.durationSec : 0
+      if ((!durationSec || durationSec <= 0) && args.projectId) {
+        durationSec = (await loadProject(String(args.projectId), cwd)).durationSec
+      }
+      const coverage = analyzeScriptCoverage(text, durationSec)
+      return asJson({
+        ...coverage,
+        instruction: coverage.complete
+          ? '覆盖自查通过，可以 bcc_export。'
+          : '未通过。对每个 gaps[] 时间段，用 bcc_read_frames source=script 找到落在该区间的采样帧补看，把缺失场景写进剧本后再跑一次本工具。',
       })
     },
   }))

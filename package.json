@@ -1,6 +1,6 @@
 {
   "name": "dsh-bcc",
-  "version": "0.1.0",
+  "version": "0.1.3",
   "description": "包拆拆 for DeepSeek Harness: video → script / storyboard / style guide. Uses the session model (recommend deepseek-v4-flash-vision-exp); never ships its own API keys.",
   "license": "MIT",
   "type": "module",
@@ -29,7 +29,7 @@
   "scripts": {
     "build": "tsdown",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test tests/parse-script.test.ts",
+    "test": "tsx --test tests/parse-script.test.ts tests/script-frames.smoke.test.ts",
     "check": "npm run typecheck && npm test && npm pack --dry-run",
     "prepare": "tsdown"
   },

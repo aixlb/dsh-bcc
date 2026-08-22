@@ -88,6 +88,17 @@ export interface BccShot {
   frame?: string
 }
 
+/** Dense stills for 拆剧本 — several frames inside each shot, not just the cut. */
+export interface ScriptSample {
+  /** 1-based index in the sample list */
+  index: number
+  /** Seconds into the video */
+  t: number
+  /** 1-based shot this sample belongs to */
+  shotIndex: number
+  path: string
+}
+
 export interface BccProject {
   id: string
   name: string
@@ -98,6 +109,7 @@ export interface BccProject {
   cutParams: CutParams
   shots: BccShot[]
   framesDir?: string
+  scriptSamples?: ScriptSample[]
   scriptPath?: string
   storyboardPath?: string
   styleGuidePath?: string

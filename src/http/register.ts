@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises'
-import { createReadStream, existsSync, statSync } from 'node:fs'
+import { createReadStream, createWriteStream, existsSync, statSync } from 'node:fs'
 import path from 'node:path'
+import { pipeline } from 'node:stream/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import { listProjects, loadProject, dataRoot } from '../store/projects.js'
@@ -92,6 +93,26 @@ export function registerHttp(ctx: Context): void {
         const one = url.pathname.match(/^\/bcc\/api\/projects\/([^/]+)$/)
         if (one && req.method === 'GET') {
           writeJson(res, 200, await loadProject(decodeURIComponent(one[1]), cwd))
+          return
+        }
+        if (url.pathname === '/bcc/api/upload' && req.method === 'POST') {
+          const rawName = url.searchParams.get('name') || 'video.mp4'
+          const safe = path.basename(rawName).replace(/[<>:"|?*\x00-\x1f]/g, '_') || 'video.mp4'
+          const dir = path.join(cwd, '.dsh-bcc', 'uploads')
+          await fs.mkdir(dir, { recursive: true })
+          let dest = path.join(dir, safe)
+          if (existsSync(dest)) {
+            const ext = path.extname(safe)
+            dest = path.join(dir, `${path.basename(safe, ext)}-${Date.now()}${ext}`)
+          }
+          const declared = Number(req.headers['content-length'] ?? 0)
+          if (declared > 8 * 1024 * 1024 * 1024) {
+            writeJson(res, 413, { error: '视频超过 8GB' })
+            return
+          }
+          await pipeline(req, createWriteStream(dest))
+          const size = (await fs.stat(dest)).size
+          writeJson(res, 200, { path: dest, size, name: path.basename(dest) })
           return
         }
         writeJson(res, 404, { error: 'not found' })
