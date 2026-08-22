@@ -1,5 +1,5 @@
-/** 分镜切割方式 */
-export type CutMethod = 'smart' | 'scene'
+/** 分镜切割方式。interval = 拆剧本按秒切片。 */
+export type CutMethod = 'smart' | 'scene' | 'interval'
 
 export interface CutParams {
   method: CutMethod
@@ -7,6 +7,7 @@ export interface CutParams {
   smart_hard_min: number
   smart_hard_ratio: number
   smart_min_gap: number
+  interval_sec: number
 }
 
 export const DEFAULT_CUT_PARAMS: CutParams = {
@@ -15,6 +16,7 @@ export const DEFAULT_CUT_PARAMS: CutParams = {
   smart_hard_min: 5.5,
   smart_hard_ratio: 8,
   smart_min_gap: 0.3,
+  interval_sec: 1,
 }
 
 export interface StoryboardShot {
@@ -113,6 +115,11 @@ export interface BccProject {
   scriptPath?: string
   storyboardPath?: string
   styleGuidePath?: string
+  shotStyle?: 'full7' | 'simple'
+  scriptMaster?: string
+  storyboardMaster?: string
+  extractPrompt?: string
+  mergePrompt?: string
 }
 
 export interface VisionUnsupportedErrorPayload {

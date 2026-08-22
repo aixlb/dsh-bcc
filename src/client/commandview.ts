@@ -3,13 +3,12 @@ import type { Context } from '@deepseek-ai/cordis'
 import './types.js'
 import { SCRIPT_COMMAND, STORYBOARD_COMMAND } from '../command-names.js'
 import { VIDEO_ACCEPT, fillAndSend, uploadVideo } from './composer.js'
+import { setDockOpen } from './dock-store.js'
 import {
-  DEFAULT_STORYBOARD_CONFIG,
-  loadStoryboardConfig,
-  saveStoryboardConfig,
-  scriptPrompt,
-  storyboardPrompt,
-  type StoryboardUiConfig,
+  loadUiState,
+  saveUiState,
+  startPrompt,
+  type BccMode,
 } from './prefs.js'
 
 interface CommandNodeLike {
@@ -30,94 +29,44 @@ export function registerCommandViews(ctx: Context): void {
 }
 
 function ScriptCommandRow(props: { node?: CommandNodeLike }): React.ReactElement {
-  const hinted = props.node?.args?.trim() || ''
+  React.useEffect(() => { setDockOpen(true) }, [])
   return React.createElement(VideoStartPanel, {
     title: '拆剧本',
-    hint: hinted,
-    buildPrompt: (videoPath: string) => scriptPrompt(videoPath),
+    mode: 'script',
+    hint: props.node?.args?.trim() || '',
   })
 }
 
 function StoryboardCommandRow(props: { node?: CommandNodeLike }): React.ReactElement {
-  const hinted = props.node?.args?.trim() || ''
-  const [cfg, setCfg] = React.useState<StoryboardUiConfig>(() => loadStoryboardConfig())
-  const patch = (partial: Partial<StoryboardUiConfig>): void => {
-    const next = { ...cfg, ...partial }
-    setCfg(next)
-    saveStoryboardConfig(next)
-  }
+  React.useEffect(() => { setDockOpen(true) }, [])
+  return React.createElement(VideoStartPanel, {
+    title: '拆分镜',
+    mode: 'storyboard',
+    hint: props.node?.args?.trim() || '',
+  })
+}
 
-  return React.createElement(
-    'div',
-    { className: 'bcc-cmd' },
-    React.createElement('div', { className: 'bcc-cmd-title' }, '拆分镜'),
-    field('技能', React.createElement('select', {
-      value: cfg.skill,
-      onChange: () => patch({ skill: 'bcc-storyboard' }),
-    }, React.createElement('option', { value: 'bcc-storyboard' }, 'bcc-storyboard'))),
-    field('大师', React.createElement('select', {
-      value: cfg.master,
-      onChange: (ev: React.ChangeEvent<HTMLSelectElement>) => patch({ master: ev.target.value as StoryboardUiConfig['master'] }),
-    },
-      React.createElement('option', { value: '' }, '无'),
-      React.createElement('option', { value: 'shanzhiyin' }, '山之音'),
-    )),
-    field('分镜类型', React.createElement('select', {
-      value: cfg.shotStyle,
-      onChange: (ev: React.ChangeEvent<HTMLSelectElement>) => patch({ shotStyle: ev.target.value as StoryboardUiConfig['shotStyle'] }),
-    },
-      React.createElement('option', { value: 'full7' }, '标准七段提示词'),
-      React.createElement('option', { value: 'simple' }, '简版（景别/运镜/描述）'),
-    )),
-    field('切割方式', React.createElement('select', {
-      value: cfg.cutMethod,
-      onChange: (ev: React.ChangeEvent<HTMLSelectElement>) => patch({ cutMethod: ev.target.value as StoryboardUiConfig['cutMethod'] }),
-    },
-      React.createElement('option', { value: 'smart' }, 'smart 混合检测'),
-      React.createElement('option', { value: 'scene' }, 'scene 帧差阈值'),
-    )),
-    cfg.cutMethod === 'smart'
-      ? React.createElement(React.Fragment, null,
-        field('硬切灵敏度', numInput(cfg.hardMin, (n) => patch({ hardMin: n }), 0.5, 30, 0.5)),
-        field('最小间隔(秒)', numInput(cfg.minGap, (n) => patch({ minGap: n }), 0.05, 2, 0.05)),
-      )
-      : field('差异阈值', numInput(cfg.threshold, (n) => patch({ threshold: n }), 0.05, 0.9, 0.05)),
-    field('最多镜数', numInput(cfg.maxShots, (n) => patch({ maxShots: n }), 20, 400, 10)),
-    React.createElement(
-      'button',
-      {
-        type: 'button',
-        className: 'bcc-cmd-reset',
-        onClick: () => {
-          setCfg({ ...DEFAULT_STORYBOARD_CONFIG })
-          saveStoryboardConfig(DEFAULT_STORYBOARD_CONFIG)
-        },
-      },
-      '恢复默认',
-    ),
-    React.createElement(VideoStartPanel, {
-      title: '',
-      hint: hinted,
-      buildPrompt: (videoPath: string) => storyboardPrompt(videoPath, cfg),
-    }),
-  )
+function remember(mode: BccMode, videoPath: string): ReturnType<typeof loadUiState> {
+  const next = { ...loadUiState(), mode, videoPath }
+  saveUiState(next)
+  return next
 }
 
 function VideoStartPanel(props: {
   title: string
+  mode: BccMode
   hint: string
-  buildPrompt: (videoPath: string) => string
 }): React.ReactElement {
   const inputRef = React.useRef<HTMLInputElement | null>(null)
   const [busy, setBusy] = React.useState(false)
   const [err, setErr] = React.useState<string | null>(null)
-  const [path, setPath] = React.useState(props.hint)
+  const [path, setPath] = React.useState(props.hint || loadUiState().videoPath)
 
   const run = async (videoPath: string): Promise<void> => {
     setBusy(true)
     setErr(null)
     try {
-      await fillAndSend(props.buildPrompt(videoPath))
+      await fillAndSend(startPrompt(remember(props.mode, videoPath)))
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
     } finally {
@@ -132,7 +81,7 @@ function VideoStartPanel(props: {
     try {
       const uploaded = await uploadVideo(file)
       setPath(uploaded.path)
-      await fillAndSend(props.buildPrompt(uploaded.path))
+      await fillAndSend(startPrompt(remember(props.mode, uploaded.path)))
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
     } finally {
@@ -143,8 +92,9 @@ function VideoStartPanel(props: {
 
   return React.createElement(
     'div',
-    { className: 'bcc-cmd-start' },
+    { className: 'bcc-cmd' },
     props.title ? React.createElement('div', { className: 'bcc-cmd-title' }, props.title) : null,
+    React.createElement('div', { className: 'bcc-cmd-start' },
     React.createElement('input', {
       ref: inputRef,
       type: 'file',
@@ -156,7 +106,7 @@ function VideoStartPanel(props: {
     }),
     path
       ? React.createElement('div', { className: 'bcc-muted' }, path)
-      : React.createElement('div', { className: 'bcc-muted' }, '从本机选择视频，上传到工作区后自动开始。'),
+      : React.createElement('div', { className: 'bcc-muted' }, '切镜参数在右侧「包拆拆」面板。从本机选择视频后按当前设置开始。'),
     React.createElement(
       'div',
       { className: 'bcc-cmd-actions' },
@@ -164,7 +114,7 @@ function VideoStartPanel(props: {
         'button',
         {
           type: 'button',
-          className: 'bcc-pop-go',
+          className: 'bcc-btn bcc-btn-primary',
           disabled: busy,
           onClick: () => inputRef.current?.click(),
         },
@@ -175,7 +125,7 @@ function VideoStartPanel(props: {
           'button',
           {
             type: 'button',
-            className: 'bcc-cmd-reset',
+            className: 'bcc-btn bcc-btn-ghost',
             disabled: busy,
             onClick: () => void run(path),
           },
@@ -184,34 +134,6 @@ function VideoStartPanel(props: {
         : null,
     ),
     err ? React.createElement('div', { className: 'bcc-chip-err' }, err) : null,
+    ),
   )
-}
-
-function field(label: string, control: React.ReactNode): React.ReactElement {
-  return React.createElement(
-    'label',
-    { className: 'bcc-pop-row' },
-    React.createElement('span', null, label),
-    control,
-  )
-}
-
-function numInput(
-  value: number,
-  onChange: (n: number) => void,
-  min: number,
-  max: number,
-  step: number,
-): React.ReactElement {
-  return React.createElement('input', {
-    type: 'number',
-    value,
-    min,
-    max,
-    step,
-    onChange: (ev: React.ChangeEvent<HTMLInputElement>) => {
-      const n = parseFloat(ev.target.value)
-      if (Number.isFinite(n)) onChange(n)
-    },
-  })
 }

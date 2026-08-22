@@ -5,6 +5,31 @@ export function round2(n: number): number {
 }
 
 /** 用显式切点秒数覆盖镜头边界（含 0，升序，不含片尾）。 */
+/**
+ * Evenly spaced cut times for 拆剧本 interval mode.
+ * Always includes 0 and covers the full duration; if the raw count would
+ * exceed maxShots, the step stretches so the tail is not dropped.
+ */
+export function intervalCutTimes(
+  durationSec: number,
+  intervalSec: number,
+  maxShots = 1200,
+): number[] {
+  const duration = Math.max(0.1, durationSec)
+  const cap = Math.max(1, Math.floor(maxShots))
+  let step = Math.max(0.2, intervalSec)
+  const raw = Math.floor(duration / step) + 1
+  if (raw > cap) step = duration / cap
+  const times: number[] = []
+  for (let t = 0; t < duration - 0.02; t += step) {
+    times.push(round2(t))
+    if (times.length >= cap) break
+  }
+  if (times.length === 0) times.push(0)
+  else if (times[0] !== 0) times.unshift(0)
+  return times
+}
+
 export function shotsFromCutTimes(
   cutTimesSec: number[],
   durationSec: number,

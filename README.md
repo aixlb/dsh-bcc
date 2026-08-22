@@ -20,26 +20,24 @@ Local checkout:
 npx @deepseek-ai/dsh plugin --profile web add ./dsh-bcc
 ```
 
-Restart `dsh web` and hard-refresh the browser. Open the command palette (`/`) and pick **拆剧本** (`bcc-script`) or **拆分镜** (`bcc-storyboard`).
+Restart `dsh web` and hard-refresh the browser. Click **包拆拆** in the session header to expand the project panel.
 
 ## Use
 
-1. Put a video in the workspace, or pick one from the command card (it uploads into `.dsh-bcc/uploads`).
-2. Command palette:
-   - **拆剧本** (`bcc-script`) — dense still sampling, then the session model writes a timestamped script.
-   - **拆分镜** (`bcc-storyboard`) — configure master / shot style / cut method, then extract one keyframe per cut.
-3. You can also type in chat: `拆这个视频的分镜` / `拆剧本` / `做风格指南`.
-4. Script pipeline: `bcc_shots` → `bcc_sample_script` → `bcc_read_frames source=script` until `remaining=0` → `bcc_script_coverage` → `bcc_export`.
-5. Storyboard pipeline: `bcc_shots` → `bcc_read_frames source=shots` → `bcc_export`.
-6. Fine-tune cuts in chat: `切太碎了，min-gap 调到 0.5` or `00:12 再切一刀`.
+1. Expand the right **包拆拆** panel: pick/upload a video, choose 拆剧本 or 拆分镜.
+2. **拆剧本** slices the timeline every N seconds (default 1s), extracts a beat per still with the open extract prompt, then merges overlapping beats with the open merge prompt. Edit both prompts in the panel; the source files are `prompts/script-extract.md` and `prompts/script-merge.md`.
+3. **拆分镜** uses smart/scene cuts and shot style from the panel.
+4. Command palette: `/bcc-script`, `/bcc-storyboard`.
+5. Script pipeline: `bcc_shots cutMethod=interval` → `bcc_read_frames source=shots` until `remaining=0` → merge beats → `bcc_script_coverage` → `bcc_export`.
+6. Storyboard pipeline: `bcc_shots` → `bcc_read_frames source=shots` → `bcc_export`.
 
 ## Tools
 
 | Tool | Role |
 |---|---|
 | `bcc_probe` | Duration / resolution |
-| `bcc_shots` | Cut detection + optional keyframes |
-| `bcc_sample_script` | Dense stills inside each shot (script mode) |
+| `bcc_shots` | Cut detection (`smart` / `scene` / `interval`) + optional keyframes |
+| `bcc_sample_script` | Optional dense stills (not used by default interval 拆剧本) |
 | `bcc_set_cuts` | Explicit cut list (chat edits) |
 | `bcc_read_frames` | Send stills to the vision model (`source=shots` or `script`) |
 | `bcc_script_coverage` | Timeline-gap / volume check before export |

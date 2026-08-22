@@ -4,7 +4,9 @@ import path from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
-import { listProjects, loadProject, dataRoot } from '../store/projects.js'
+import { listProjects, loadProject, saveProject, dataRoot } from '../store/projects.js'
+import type { CutParams } from '../lib/types.js'
+import { loadOpenPrompts } from '../lib/prompt-files.js'
 
 type WebServer = {
   register: (route: {
@@ -12,6 +14,55 @@ type WebServer = {
     path: string
     handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void>
   }) => () => void
+}
+
+function summarizeProject(project: Awaited<ReturnType<typeof loadProject>>): Record<string, unknown> {
+  return {
+    id: project.id,
+    name: project.name,
+    videoPath: project.videoPath,
+    durationSec: project.durationSec,
+    shotCount: project.shots.length,
+    updatedAt: project.updatedAt,
+    cutParams: project.cutParams,
+    shotStyle: project.shotStyle ?? null,
+    scriptMaster: project.scriptMaster ?? '',
+    storyboardMaster: project.storyboardMaster ?? '',
+    extractPrompt: project.extractPrompt ?? '',
+    mergePrompt: project.mergePrompt ?? '',
+    hasScript: !!project.scriptPath,
+    hasStoryboard: !!project.storyboardPath,
+  }
+}
+
+function mergeCutParams(current: CutParams, patch: Partial<CutParams> | undefined): CutParams {
+  if (!patch) return current
+  return {
+    method: patch.method === 'scene' || patch.method === 'smart' || patch.method === 'interval' ? patch.method : current.method,
+    scene_threshold: num(patch.scene_threshold, current.scene_threshold),
+    smart_hard_min: num(patch.smart_hard_min, current.smart_hard_min),
+    smart_hard_ratio: num(patch.smart_hard_ratio, current.smart_hard_ratio),
+    smart_min_gap: num(patch.smart_min_gap, current.smart_min_gap),
+    interval_sec: num(patch.interval_sec, current.interval_sec ?? 1),
+  }
+}
+
+function num(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback
+}
+
+async function readJson(req: IncomingMessage, limit = 1_000_000): Promise<unknown> {
+  const chunks: Buffer[] = []
+  let size = 0
+  for await (const chunk of req) {
+    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+    size += buf.length
+    if (size > limit) throw new Error('请求体过大')
+    chunks.push(buf)
+  }
+  const raw = Buffer.concat(chunks).toString('utf8').trim()
+  if (!raw) return {}
+  return JSON.parse(raw) as unknown
 }
 
 function writeJson(res: ServerResponse, status: number, body: unknown): void {
@@ -85,14 +136,47 @@ export function registerHttp(ctx: Context): void {
       try {
         const url = new URL(req.url ?? '/', 'http://dsh.internal')
         const cwd = url.searchParams.get('cwd') || process.cwd()
+        if (url.pathname === '/bcc/api/prompts' && req.method === 'GET') {
+          writeJson(res, 200, { ...loadOpenPrompts(), source: 'prompts/*.md' })
+          return
+        }
         if (url.pathname === '/bcc/api/projects' && req.method === 'GET') {
           const projects = await listProjects(cwd)
-          writeJson(res, 200, { projects })
+          writeJson(res, 200, { projects: projects.map(summarizeProject) })
           return
         }
         const one = url.pathname.match(/^\/bcc\/api\/projects\/([^/]+)$/)
         if (one && req.method === 'GET') {
-          writeJson(res, 200, await loadProject(decodeURIComponent(one[1]), cwd))
+          writeJson(res, 200, summarizeProject(await loadProject(decodeURIComponent(one[1]), cwd)))
+          return
+        }
+        if (one && req.method === 'POST') {
+          const id = decodeURIComponent(one[1])
+          const current = await loadProject(id, cwd)
+          const patch = await readJson(req) as {
+            videoPath?: unknown
+            cutParams?: Partial<CutParams>
+            shotStyle?: unknown
+            scriptMaster?: unknown
+            storyboardMaster?: unknown
+            extractPrompt?: unknown
+            mergePrompt?: unknown
+            name?: unknown
+          }
+          const next = await saveProject({
+            ...current,
+            name: typeof patch.name === 'string' && patch.name.trim() ? patch.name.trim() : current.name,
+            videoPath: typeof patch.videoPath === 'string' && patch.videoPath.trim()
+              ? path.resolve(patch.videoPath)
+              : current.videoPath,
+            cutParams: mergeCutParams(current.cutParams, patch.cutParams),
+            shotStyle: patch.shotStyle === 'simple' || patch.shotStyle === 'full7' ? patch.shotStyle : current.shotStyle,
+            scriptMaster: typeof patch.scriptMaster === 'string' ? patch.scriptMaster : current.scriptMaster,
+            storyboardMaster: typeof patch.storyboardMaster === 'string' ? patch.storyboardMaster : current.storyboardMaster,
+            extractPrompt: typeof patch.extractPrompt === 'string' ? patch.extractPrompt : current.extractPrompt,
+            mergePrompt: typeof patch.mergePrompt === 'string' ? patch.mergePrompt : current.mergePrompt,
+          }, cwd)
+          writeJson(res, 200, summarizeProject(next))
           return
         }
         if (url.pathname === '/bcc/api/upload' && req.method === 'POST') {

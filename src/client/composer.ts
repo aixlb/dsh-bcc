@@ -1,5 +1,7 @@
-export async function uploadVideo(file: File): Promise<{ path: string; size: number }> {
-  const res = await fetch(`/bcc/api/upload?name=${encodeURIComponent(file.name)}`, {
+export async function uploadVideo(file: File, cwd?: string): Promise<{ path: string; size: number }> {
+  const qs = new URLSearchParams({ name: file.name })
+  if (cwd) qs.set('cwd', cwd)
+  const res = await fetch(`/bcc/api/upload?${qs}`, {
     method: 'POST',
     headers: { 'content-type': file.type || 'application/octet-stream' },
     body: file,

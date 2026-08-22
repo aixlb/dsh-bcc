@@ -14,14 +14,14 @@
 npx @deepseek-ai/dsh plugin --profile web add github:aixlb/dsh-bcc
 ```
 
-装进 `web` profile 后重启 `dsh web`，浏览器硬刷新。在命令面板（`/`）里选 **拆剧本**（`bcc-script`）或 **拆分镜**（`bcc-storyboard`），选视频即可开始。
+装进 `web` profile 后重启 `dsh web`，浏览器硬刷新。点会话标题右侧的 **包拆拆** 展开项目面板：视频地址、切镜方式、分镜类型、大师都在这里配，和原版包拆拆切分镜工作台同一套参数。
 
 把 GitHub 仓库 topic 设为 `dsh-plugin` 即可被社区市场收录。
 
 ## 使用
 
-- **拆剧本**：`bcc_shots` → `bcc_sample_script`（镜内加密集采样）→ `bcc_read_frames source=script` 循环到 `remaining=0` → `bcc_script_coverage` → `bcc_export`。
-- **拆分镜**：命令卡片里可配大师 / 分镜类型 / 切割方式，再 `bcc_shots` → `bcc_read_frames source=shots` → `bcc_export`。
+- **拆剧本**：按设定间隔（默认 1 秒）`bcc_shots cutMethod=interval` → `bcc_read_frames source=shots` 循环到 `remaining=0`，先写成节拍，再按开源「合并提示词」合成剧本 → `bcc_script_coverage` → `bcc_export`。提取/合并提示词在右侧面板可改，源文件是 `prompts/script-extract.md`、`prompts/script-merge.md`。
+- **拆分镜**：右侧面板配大师 / 分镜类型 / 切割方式，再 `bcc_shots` → `bcc_read_frames source=shots` → `bcc_export`。
 - 也可以直接在对话里说「拆分镜 / 拆剧本 / 风格指南」。聊天可改切镜：`切太碎了`、`00:12 再切一刀`。
 
 拆剧本没有音频：台词以画面字幕为准，看不见就写 `【画面未见对白】`。

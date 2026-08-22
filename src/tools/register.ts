@@ -41,7 +41,10 @@ function asJson(value: unknown): JsonValue {
 const MAX_READ_FRAMES = 8
 
 function resolveCutParams(args: Record<string, unknown>, fallback: CutParams): CutParams {
-  const method = args.cutMethod === 'scene' || args.cut_method === 'scene' ? 'scene' : (args.cutMethod === 'smart' || args.cut_method === 'smart' ? 'smart' : fallback.method)
+  const rawMethod = String(args.cutMethod ?? args.cut_method ?? fallback.method)
+  const method: CutParams['method'] = rawMethod === 'scene' || rawMethod === 'smart' || rawMethod === 'interval'
+    ? rawMethod
+    : fallback.method
   const num = (keys: string[], def: number): number => {
     for (const k of keys) {
       const v = args[k]
@@ -55,6 +58,7 @@ function resolveCutParams(args: Record<string, unknown>, fallback: CutParams): C
     smart_hard_min: num(['hardMin', 'hard_min'], fallback.smart_hard_min),
     smart_hard_ratio: num(['hardRatio', 'hard_ratio'], fallback.smart_hard_ratio),
     smart_min_gap: num(['minGap', 'min_gap'], fallback.smart_min_gap),
+    interval_sec: num(['intervalSec', 'interval_sec'], fallback.interval_sec ?? 1),
   }
 }
 
@@ -83,17 +87,18 @@ export function registerTools(ctx: Context, configOf: () => PluginConfig): void 
   ctx.tools.register(defineTool({
     name: 'bcc_shots',
     description:
-      'Detect shot cuts and optionally extract one keyframe per cut. For 拆剧本 this is NOT enough — after this, you MUST call bcc_sample_script then read source=script until remaining=0. Chat can re-run with larger minGap if cuts are too fine.',
+      'Detect shot cuts and optionally extract one keyframe per cut. cutMethod=interval (拆剧本默认) slices the timeline every intervalSec seconds. smart/scene are for 拆分镜. For interval, next read source=shots until remaining=0, then merge beats — do not call bcc_sample_script.',
     parameters: {
       video: { type: 'string', required: true, description: 'Absolute path to the video' },
       projectId: { type: 'string', description: 'Existing project id to update' },
-      frames: { type: 'boolean', description: 'Extract keyframes (default true for storyboard)' },
-      cutMethod: { type: 'string', enum: ['smart', 'scene'], description: 'Cut method' },
+      frames: { type: 'boolean', description: 'Extract keyframes (default true)' },
+      cutMethod: { type: 'string', enum: ['smart', 'scene', 'interval'], description: 'interval = every N seconds (script); smart/scene = storyboard' },
+      intervalSec: { type: 'number', description: 'interval: seconds between cuts (default 1)' },
       hardMin: { type: 'number', description: 'smart: minimum hard-cut frame diff (default 5.5; lower = more sensitive)' },
       hardRatio: { type: 'number', description: 'smart: ratio vs local median (default 8)' },
       minGap: { type: 'number', description: 'smart: minimum gap between cuts in seconds (default 0.3)' },
       threshold: { type: 'number', description: 'scene: score threshold 0-1 (default 0.3)' },
-      maxShots: { type: 'number', description: 'Max shots (default 200)' },
+      maxShots: { type: 'number', description: 'Max shots (interval default 1200, otherwise 200)' },
       cwd: { type: 'string', description: 'Workspace root; default process cwd' },
     },
     output: {
@@ -111,7 +116,9 @@ export function registerTools(ctx: Context, configOf: () => PluginConfig): void 
       const video = path.resolve(String(args.video))
       const cutParams = resolveCutParams(args, { ...DEFAULT_CUT_PARAMS, ...cfg.cut })
       const wantFrames = args.frames !== false
-      const maxShots = typeof args.maxShots === 'number' ? args.maxShots : cfg.maxShots
+      const maxShots = typeof args.maxShots === 'number'
+        ? args.maxShots
+        : (cutParams.method === 'interval' ? 1200 : cfg.maxShots)
       const info = await getVideoInfo(video)
 
       let project = args.projectId
@@ -334,11 +341,15 @@ export function registerTools(ctx: Context, configOf: () => PluginConfig): void 
       indices = [...new Set(indices)].filter((n) => n >= 1 && n <= items.length).slice(0, MAX_READ_FRAMES)
       const selected = indices.map((index) => items[index - 1]).filter((row) => row.path && existsSync(row.path))
       if (selected.length === 0) throw new Error('指定范围没有可用帧。')
-      const refs = await attachments.saveImages(await Promise.all(selected.map(async (row) => ({
+      const payloads = await Promise.all(selected.map(async (row) => ({
         data: new Uint8Array(await fs.readFile(row.path)),
         mediaType: 'image/jpeg' as const,
         name: `${source}-${row.index}.jpg`,
-      }))))
+      })))
+      const saveImages = (attachments as { saveImages?: (inputs: typeof payloads) => Promise<readonly ImageAttachmentRef[]> }).saveImages
+      const refs = typeof saveImages === 'function'
+        ? await saveImages(payloads)
+        : await Promise.all(payloads.map((item) => attachments.saveImage(item)))
       const lastIndex = selected[selected.length - 1].index
       const remaining = Math.max(0, items.length - lastIndex)
       const nextFrom = remaining > 0 ? lastIndex + 1 : null

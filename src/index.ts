@@ -6,7 +6,7 @@ import { registerHttp } from './http/register.js'
 import { registerBccCommands } from './commands.js'
 
 export const name = 'dsh-bcc'
-export const inject = ['tools']
+export const inject = ['tools', 'attachments']
 export { Config }
 export type { PluginConfig }
 

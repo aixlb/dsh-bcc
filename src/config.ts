@@ -9,10 +9,11 @@ export interface PluginConfig {
 export const Config: Schema<PluginConfig> = Schema.object({
   maxShots: Schema.number().default(200).description('Maximum shots per video'),
   cut: Schema.object({
-    method: Schema.union(['smart', 'scene']).default(DEFAULT_CUT_PARAMS.method),
+    method: Schema.union(['smart', 'scene', 'interval']).default(DEFAULT_CUT_PARAMS.method),
     scene_threshold: Schema.number().default(DEFAULT_CUT_PARAMS.scene_threshold),
     smart_hard_min: Schema.number().default(DEFAULT_CUT_PARAMS.smart_hard_min),
     smart_hard_ratio: Schema.number().default(DEFAULT_CUT_PARAMS.smart_hard_ratio),
     smart_min_gap: Schema.number().default(DEFAULT_CUT_PARAMS.smart_min_gap),
+    interval_sec: Schema.number().default(DEFAULT_CUT_PARAMS.interval_sec),
   }).default(DEFAULT_CUT_PARAMS),
 })

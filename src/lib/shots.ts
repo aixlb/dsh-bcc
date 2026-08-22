@@ -1,9 +1,9 @@
 import path from 'node:path'
 import fs from 'node:fs/promises'
 import type { CutParams, DetectedShot, BccShot, SceneScorePoint, StoryboardCapturedFrame } from './types.js'
-import { round2, shotsFromCutTimes } from './cuts.js'
+import { intervalCutTimes, round2, shotsFromCutTimes } from './cuts.js'
 
-export { round2, shotsFromCutTimes } from './cuts.js'
+export { intervalCutTimes, round2, shotsFromCutTimes } from './cuts.js'
 import { smartDetect } from './smart-cut.js'
 import {
   detectShots,
@@ -73,7 +73,20 @@ export async function detectAndCaptureShots(opts: DetectAndCaptureOptions): Prom
   let durationSec: number | undefined
   let seriesThreshold: number
 
-  if (cutParams.method === 'smart') {
+  if (cutParams.method === 'interval') {
+    durationSec = (await getVideoInfo(videoPath)).durationSec
+    const interval = cutParams.interval_sec > 0 ? cutParams.interval_sec : 1
+    seriesThreshold = 0
+    const times = intervalCutTimes(durationSec, interval, maxShots)
+    const pad = Math.min(0.15, interval / 3)
+    detected = times.map((t) => ({
+      timestamp: t,
+      score: 0,
+      thumbT: Math.min(durationSec! - 0.01, t + pad),
+      kind: 'interval',
+    }))
+    log(`镜头切分(interval): every ${interval}s → ${detected.length} 镜 / ${durationSec.toFixed(1)}s`)
+  } else if (cutParams.method === 'smart') {
     seriesThreshold = cutParams.smart_hard_min / 255
     log(
       `镜头切分(smart): hardMin=${cutParams.smart_hard_min} hardRatio=${cutParams.smart_hard_ratio} minGap=${cutParams.smart_min_gap}`,
