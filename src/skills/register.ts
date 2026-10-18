@@ -22,9 +22,10 @@ function readSkill(name: string): string {
   return fs.readFileSync(file, 'utf-8')
 }
 
-function parseFrontmatter(raw: string): { description: string; content: string } {
-  const m = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/)
-  if (!m) return { description: '', content: raw }
+export function parseFrontmatter(raw: string): { description: string; content: string } {
+  const normalized = raw.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n')
+  const m = normalized.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/)
+  if (!m) return { description: '', content: normalized }
   const desc = m[1].match(/^description:\s*(.*)$/m)?.[1]?.trim() ?? ''
   return { description: desc.replace(/^['"]|['"]$/g, ''), content: m[2].trim() }
 }
