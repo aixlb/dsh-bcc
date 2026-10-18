@@ -4,7 +4,7 @@ import { injectStyles } from './styles.js'
 import { registerCommandViews } from './commandview.js'
 import { registerDock } from './dock.js'
 
-export const inject = ['slots']
+export const inject = ['slots', 'sessions', 'conversation']
 
 export function apply(ctx: Context): void {
   injectStyles()

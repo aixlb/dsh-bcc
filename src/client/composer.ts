@@ -1,3 +1,14 @@
+import type { Context } from '@deepseek-ai/cordis'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { PromptSender } from './types.js'
+
+declare module '@deepseek-ai/dsh-api-session-controller/client' {
+  interface SessionReferenceSourceMap {
+    'dsh-bcc': unknown
+  }
+}
+
 export async function uploadVideo(file: File, cwd?: string): Promise<{ path: string; size: number }> {
   const qs = new URLSearchParams({ name: file.name })
   if (cwd) qs.set('cwd', cwd)
@@ -13,63 +24,16 @@ export async function uploadVideo(file: File, cwd?: string): Promise<{ path: str
   return { path: body.path, size: body.size ?? file.size }
 }
 
-function composerRoot(): ParentNode {
-  return document.querySelector('[data-pane="conversation"]') ?? document
-}
-
-function findDraft(): HTMLTextAreaElement | HTMLElement | null {
-  const root = composerRoot()
-  return root.querySelector('textarea:not([disabled])')
-    ?? root.querySelector('[contenteditable="true"]')
-}
-
-function findSendButton(): HTMLButtonElement | null {
-  const root = composerRoot()
-  const buttons = Array.from(root.querySelectorAll('button')) as HTMLButtonElement[]
-  const labeled = buttons.find((b) => {
-    const label = `${b.getAttribute('aria-label') ?? ''} ${b.textContent ?? ''}`
-    return /发送|send/i.test(label)
-  })
-  if (labeled) return labeled
-  const submits = buttons.filter((b) => b.type === 'submit' && !b.disabled)
-  return submits.at(-1) ?? null
-}
-
-function writeDraft(el: HTMLTextAreaElement | HTMLElement, text: string): void {
-  el.focus()
-  if (el instanceof HTMLTextAreaElement) {
-    const desc = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
-    desc?.set?.call(el, text)
-    el.dispatchEvent(new Event('input', { bubbles: true }))
-    el.dispatchEvent(new Event('change', { bubbles: true }))
-    return
+/** Bind submission to the initiating session, even if navigation changes during upload. */
+export function createPromptSender(ctx: Context, sessionId: SessionId): PromptSender {
+  return async (text) => {
+    // Host and Client both name their different session services `sessions`.
+    const sessions = ctx.get('sessions') as unknown as ISessions
+    await sessions.using(sessionId, { source: 'dsh-bcc' }, async (reference) => {
+      const binding = await reference.ready
+      await binding.ctx.conversation.send(text)
+    })
   }
-  try {
-    document.execCommand('selectAll', false)
-    document.execCommand('insertText', false, text)
-  } catch {
-    el.textContent = text
-    el.dispatchEvent(new InputEvent('input', { bubbles: true, data: text, inputType: 'insertText' }))
-  }
-}
-
-/** Put text in the live composer and click Send. Best-effort against the stock DSH composer. */
-export async function fillAndSend(text: string): Promise<void> {
-  const draft = findDraft()
-  if (!draft) throw new Error('找不到聊天输入框，请手动粘贴提示词发送。')
-  writeDraft(draft, text)
-  await new Promise((r) => setTimeout(r, 60))
-  const send = findSendButton()
-  if (send) {
-    send.click()
-    return
-  }
-  draft.dispatchEvent(new KeyboardEvent('keydown', {
-    key: 'Enter',
-    code: 'Enter',
-    bubbles: true,
-    cancelable: true,
-  }))
 }
 
 export const VIDEO_ACCEPT = 'video/mp4,video/quicktime,video/webm,video/x-matroska,.mp4,.mov,.mkv,.webm,.m4v,.avi'

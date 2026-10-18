@@ -1,69 +1,35 @@
 import type { Context } from '@deepseek-ai/cordis'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-llm'
 
 export const RECOMMENDED_MODEL = 'deepseek-v4-flash-vision-exp'
 
 export const VISION_REQUIRED_MESSAGE =
-  `当前会话模型不支持图片输入，无法看关键帧。请在 DSH 模型选择器切换到 ${RECOMMENDED_MODEL}（或其它带 image 模态的模型）。包拆拆不会自动改你的默认模型。`
-
-type Modality = string
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' ? (value as Record<string, unknown>) : null
-}
-
-function modalitiesOf(model: unknown): Modality[] {
-  const rec = asRecord(model)
-  if (!rec) return []
-  const raw = rec.inputModalities ?? rec.modalities ?? rec.capabilities
-  if (Array.isArray(raw)) return raw.map((x) => String(x).toLowerCase())
-  return []
-}
-
-function idOf(model: unknown): string {
-  const rec = asRecord(model)
-  if (!rec) return ''
-  return String(rec.id ?? rec.model ?? rec.name ?? '')
-}
+  `当前会话模型不支持图片输入，无法看关键帧。请在 DSH 模型选择器切换到标明支持 image 的模型（如账号仍提供的 ${RECOMMENDED_MODEL}）。模型可用性以当前账号目录为准。包拆拆不会自动改你的默认模型。`
 
 /**
  * Best-effort: true / false when the live LLM catalog is inspectable, null if unknown.
  * Never writes settings. Callers must prompt, not auto-switch.
  */
-export function modelSupportsVision(ctx: Context): boolean | null {
+export async function modelSupportsVision(ctx: Context, agent?: Agent, signal?: AbortSignal): Promise<boolean | null> {
+  signal?.throwIfAborted()
+  const llm = ctx.get('llm')
+  // The request header identifies the route actually producing this tool call,
+  // including model-picker changes, rather than a deployment-wide default.
+  const route = agent?.session.requestHeader()?.config ?? agent?.options
+  if (!llm || !route?.provider || !route.model) return null
   try {
-    const llm = (ctx as Context & { get?: (key: string) => unknown }).get?.('llm')
-      ?? (ctx as unknown as { llm?: unknown }).llm
-    const rec = asRecord(llm)
-    if (!rec) return null
-
-    const current =
-      rec.currentModel
-      ?? rec.activeModel
-      ?? (typeof rec.getCurrentModel === 'function' ? rec.getCurrentModel() : undefined)
-    if (current) {
-      const id = idOf(current).toLowerCase()
-      const mods = modalitiesOf(current)
-      if (mods.includes('image') || mods.includes('vision')) return true
-      if (id.includes('vision')) return true
-      if (mods.includes('text') && mods.length === 1) return false
-    }
-
-    const models = rec.models ?? rec.catalog
-    if (Array.isArray(models)) {
-      const vision = models.find((m) => {
-        const id = idOf(m).toLowerCase()
-        return id.includes('vision') || modalitiesOf(m).includes('image')
-      })
-      if (!vision) return null
-    }
-    return null
+    const info = await llm.resolveModelInfo(route.provider, route.model, signal)
+    signal?.throwIfAborted()
+    return info.inputModalities === undefined ? null : info.inputModalities.includes('image')
   } catch {
+    signal?.throwIfAborted()
     return null
   }
 }
 
-export function assertVisionOrHint(ctx: Context): void {
-  const supported = modelSupportsVision(ctx)
+export async function assertVisionOrHint(ctx: Context, agent?: Agent, signal?: AbortSignal): Promise<void> {
+  const supported = await modelSupportsVision(ctx, agent, signal)
   if (supported === false) {
     throw new Error(VISION_REQUIRED_MESSAGE)
   }

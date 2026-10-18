@@ -2,7 +2,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
-import { RECOMMENDED_MODEL, VISION_REQUIRED_MESSAGE } from '../lib/vision.js'
+import type {} from '@deepseek-ai/dsh-skill'
+import { VISION_REQUIRED_MESSAGE } from '../lib/vision.js'
 
 function skillsRoot(): string {
   const here = path.dirname(fileURLToPath(import.meta.url))
@@ -31,8 +32,7 @@ export function parseFrontmatter(raw: string): { description: string; content: s
 }
 
 export function registerSkills(ctx: Context): void {
-  const skills = (ctx as Context & { skills?: { register: (s: Record<string, unknown>) => unknown } }).skills
-  if (!skills?.register) return
+  const skills = ctx.skills
 
   const items = [
     { name: 'bcc-storyboard', dir: 'bcc-storyboard', when: '用户要拆分镜、分镜表、storyboard、逐镜头' },
@@ -46,7 +46,7 @@ export function registerSkills(ctx: Context): void {
       name: item.name,
       description: parsed.description || item.when,
       whenToUse: item.when,
-      content: `${parsed.content}\n\n## 模型\n推荐会话模型：\`${RECOMMENDED_MODEL}\`。${VISION_REQUIRED_MESSAGE}`,
+      content: `${parsed.content}\n\n## 模型能力检查\n以当前会话实际路由的 image 输入能力为准；目录未声明时不猜测。若模型明确不支持图片：${VISION_REQUIRED_MESSAGE}`,
       source: 'runtime',
     })
   }

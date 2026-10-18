@@ -17,7 +17,7 @@ The plugin owns ffmpeg cut detection, keyframes, and export (docx / xlsx / html)
 
 Install this repository to use 包拆拆 inside DSH. The desktop application and CLI are available from `bcc`; they are not required to install or run this plugin. This plugin keeps its video-processing modules locally so a GitHub installation does not depend on a checkout or a private package from `bcc`.
 
-Recommended model: **`deepseek-v4-flash-vision-exp`**. If the current model cannot see images, the plugin **prompts you to switch** in the DSH model picker. It never rewrites your default model.
+Select a model whose DSH catalog declares **image input**. Availability follows your account's current catalog; `deepseek-v4-flash-vision-exp` is an example only if it is still offered. The plugin checks the route actually producing the tool call and **prompts you to switch** if it is text-only. It never rewrites your default model.
 
 ## Install
 
@@ -60,7 +60,11 @@ Scripts are **image-only**: dialogue comes from burned-in captions. Unseen speec
 
 ## Compatibility
 
+Version `0.1.7` targets **DSH `0.2.0-rc.2` (npm `latest`) and `0.2.1-rc.2` (npm `next`)**, checked on 2026-10-18. Both `engines.dsh` and the DSH tools peer range declare these supported release lines. DSH `0.1.x` is outside this support range. Pin `npx @deepseek-ai/dsh@0.2.1-rc.2` explicitly for the candidate release, using the same DSH version for plugin installation and `web` startup.
+
 The installation source remains `github:aixlb/dsh-bcc`, and the commands and tools retain their `bcc` names. Existing workspace data in `.dsh-bcc/projects`, uploaded videos, and saved panel preferences remain in place. The plugin does not move desktop/CLI projects into the DSH workspace or change the current session model.
+
+The panel and prompt submission bind to their originating session. Tools follow the session's effective working directory, including `working_directory` changes; relative inputs and outputs resolve there. Read-only tools permit DSH's parallel scheduling. Cutting, project edits, and exports remain exclusive. Canonical JSON and image output works with Native and PTC presentation. See [the compatibility assessment](./docs/DSH_COMPATIBILITY.md) for changes and feature decisions.
 
 ## Development
 
@@ -69,6 +73,11 @@ Use Node.js 22.19+ in the 22.x series, or Node.js 24+. Install ffmpeg and ffprob
 ```bash
 npm ci
 npm run check
+
+# Test the other supported DSH version without editing manifests or lockfiles
+npm run compat:install -- 0.2.0-rc.2
+npm run check
+npm ci
 ```
 
 `check` runs TypeScript checks, tests, and a package dry run. `npm run build` produces the server and browser entries in `lib/`; `npm pack` creates an installable archive with the prompts, DSH skills, and Cordis patch. The `prepare` script also builds the plugin when installing from GitHub.

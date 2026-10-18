@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { fetchProject, fetchProjects, mediaUrl, patchProject, type ProjectSummary } from './api.js'
-import { fillAndSend, uploadVideo, VIDEO_ACCEPT } from './composer.js'
+import { uploadVideo, VIDEO_ACCEPT } from './composer.js'
+import type { PromptSender } from './types.js'
 import { NumberInput, SelectField, TextArea, TextInput } from './widgets.js'
 import {
   applyCutParams,
@@ -19,7 +20,7 @@ import {
   type StoryboardUiConfig,
 } from './prefs.js'
 
-export function ProjectPanel(props: { cwd: string; onCollapse: () => void }): React.ReactElement {
+export function ProjectPanel(props: { cwd: string; sendPrompt: PromptSender; onCollapse: () => void }): React.ReactElement {
   const { cwd } = props
   const [ui, setUi] = useState<BccUiState>(() => loadUiState())
   const [projects, setProjects] = useState<ProjectSummary[]>([])
@@ -140,7 +141,7 @@ export function ProjectPanel(props: { cwd: string; onCollapse: () => void }): Re
     setBusy(true)
     setErr(null)
     try {
-      await fillAndSend(startPrompt(next))
+      await props.sendPrompt(startPrompt(next))
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
     } finally {

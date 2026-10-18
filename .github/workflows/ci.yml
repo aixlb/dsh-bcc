@@ -9,6 +9,7 @@ jobs:
     strategy:
       matrix:
         node: ['22.19.0', '24']
+        dsh: ['0.2.0-rc.2', '0.2.1-rc.2']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -16,4 +17,5 @@ jobs:
           node-version: ${{ matrix.node }}
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: npm ci
+      - run: npm run compat:install -- ${{ matrix.dsh }}
       - run: npm run check

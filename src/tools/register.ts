@@ -28,11 +28,12 @@ import {
   saveProject,
   updateProjectShots,
 } from '../store/projects.js'
-import { assertVisionOrHint, RECOMMENDED_MODEL, VISION_REQUIRED_MESSAGE } from '../lib/vision.js'
+import { assertVisionOrHint, VISION_REQUIRED_MESSAGE } from '../lib/vision.js'
 import type { PluginConfig } from '../config.js'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import type { JsonValue } from '@deepseek-ai/dsh-session'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
+import { workspaceOf, resolveWorkspacePath } from '../lib/workspace.js'
 
 function asJson(value: unknown): JsonValue {
   return JSON.parse(JSON.stringify(value)) as JsonValue
@@ -62,13 +63,10 @@ function resolveCutParams(args: Record<string, unknown>, fallback: CutParams): C
   }
 }
 
-function cwdOf(args: { cwd?: string }): string {
-  return args.cwd ? path.resolve(args.cwd) : process.cwd()
-}
-
 export function registerTools(ctx: Context, configOf: () => PluginConfig): void {
   ctx.tools.register(defineTool({
     name: 'bcc_probe',
+    isConcurrencySafe: () => true,
     description: 'Probe a local video file for duration, resolution, codec, fps, and size. Use before 包拆拆 pipelines.',
     parameters: {
       video: { type: 'string', required: true, description: 'Absolute path to the video file' },
@@ -77,8 +75,9 @@ export function registerTools(ctx: Context, configOf: () => PluginConfig): void 
       schema: { type: 'json' },
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
     },
-    async execute(args) {
-      const video = path.resolve(String(args.video))
+    async execute(args, exec) {
+      const cwd = workspaceOf(ctx, {}, exec)
+      const video = resolveWorkspacePath(cwd, String(args.video))
       const info = await getVideoInfo(video)
       return asJson({ ...info, path: video })
     },
@@ -99,7 +98,7 @@ export function registerTools(ctx: Context, configOf: () => PluginConfig): void 
       minGap: { type: 'number', description: 'smart: minimum gap between cuts in seconds (default 0.3)' },
       threshold: { type: 'number', description: 'scene: score threshold 0-1 (default 0.3)' },
       maxShots: { type: 'number', description: 'Max shots (interval default 1200, otherwise 200)' },
-      cwd: { type: 'string', description: 'Workspace root; default process cwd' },
+      cwd: { type: 'string', description: 'Workspace root; defaults to the calling session current directory' },
     },
     output: {
       schema: { type: 'json' },
@@ -112,8 +111,8 @@ export function registerTools(ctx: Context, configOf: () => PluginConfig): void 
     }),
     async execute(args, exec) {
       const cfg = configOf()
-      const cwd = cwdOf(args)
-      const video = path.resolve(String(args.video))
+      const cwd = workspaceOf(ctx, args, exec)
+      const video = resolveWorkspacePath(cwd, String(args.video))
       const cutParams = resolveCutParams(args, { ...DEFAULT_CUT_PARAMS, ...cfg.cut })
       const wantFrames = args.frames !== false
       const maxShots = typeof args.maxShots === 'number'
@@ -175,7 +174,7 @@ export function registerTools(ctx: Context, configOf: () => PluginConfig): void 
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
     },
     async execute(args, exec) {
-      const cwd = cwdOf(args)
+      const cwd = workspaceOf(ctx, args, exec)
       const project = await loadProject(String(args.projectId), cwd)
       const cuts = Array.isArray(args.cuts) ? args.cuts.map(Number) : []
       let shots = shotsFromCutTimes(cuts, project.durationSec, project.shots)
@@ -212,7 +211,7 @@ export function registerTools(ctx: Context, configOf: () => PluginConfig): void 
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
     },
     async execute(args, exec) {
-      const cwd = cwdOf(args)
+      const cwd = workspaceOf(ctx, args, exec)
       const project = await loadProject(String(args.projectId), cwd)
       if (!project.shots.length) throw new Error('项目还没有镜头。请先 bcc_shots（frames=true）。')
       const outputDir = path.join(path.resolve(cwd, '.dsh-bcc', 'projects', project.id), 'script-frames')
@@ -248,6 +247,7 @@ export function registerTools(ctx: Context, configOf: () => PluginConfig): void 
 
   ctx.tools.register(defineTool({
     name: 'bcc_read_frames',
+    isConcurrencySafe: () => true,
     description:
       `Send video stills to the current vision model in small batches (max ${MAX_READ_FRAMES}). Use source=shots for 拆分镜 and the default interval 拆剧本 pipeline. Use source=script only AFTER optional bcc_sample_script on smart/scene shots. KEEP CALLING with the returned nextFrom until remaining=0. Never skip the rest of the timeline.`,
     parameters: {
@@ -285,13 +285,13 @@ export function registerTools(ctx: Context, configOf: () => PluginConfig): void 
         return blocks
       },
     },
-    async execute(args) {
-      assertVisionOrHint(ctx)
+    async execute(args, exec) {
+      await assertVisionOrHint(ctx, exec.agent, exec.signal)
       const attachments = ctx.attachments
       if (!attachments) {
         throw new Error(`当前运行时没有附件服务，无法把关键帧交给模型。${VISION_REQUIRED_MESSAGE}`)
       }
-      const cwd = cwdOf(args)
+      const cwd = workspaceOf(ctx, args, exec)
       const project = await loadProject(String(args.projectId), cwd)
       const source = args.source === 'script' || (!args.source && (project.scriptSamples?.length ?? 0) > 0)
         ? 'script'
@@ -348,7 +348,7 @@ export function registerTools(ctx: Context, configOf: () => PluginConfig): void 
       })))
       const saveImages = (attachments as { saveImages?: (inputs: typeof payloads) => Promise<readonly ImageAttachmentRef[]> }).saveImages
       const refs = typeof saveImages === 'function'
-        ? await saveImages(payloads)
+        ? await saveImages.call(attachments, payloads)
         : await Promise.all(payloads.map((item) => attachments.saveImage(item)))
       const lastIndex = selected[selected.length - 1].index
       const remaining = Math.max(0, items.length - lastIndex)
@@ -360,7 +360,7 @@ export function registerTools(ctx: Context, configOf: () => PluginConfig): void 
       return asJson({
         projectId: project.id,
         source,
-        recommendedModel: RECOMMENDED_MODEL,
+        requiredInputModality: 'image',
         hint: `每张图上方文字是时间戳。若看不见图：${VISION_REQUIRED_MESSAGE}`,
         coverage: {
           total: items.length,
@@ -388,6 +388,7 @@ export function registerTools(ctx: Context, configOf: () => PluginConfig): void 
 
   ctx.tools.register(defineTool({
     name: 'bcc_script_coverage',
+    isConcurrencySafe: () => true,
     description:
       'Check a 剧本.md against video duration: timeline gaps, missing head/tail, and character volume (≈300 chars/min). If complete=false, re-read the gap ranges with bcc_read_frames and patch the script. Do not export until complete=true.',
     parameters: {
@@ -400,9 +401,9 @@ export function registerTools(ctx: Context, configOf: () => PluginConfig): void 
       schema: { type: 'json' },
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
     },
-    async execute(args) {
-      const cwd = cwdOf(args)
-      const from = path.resolve(String(args.from))
+    async execute(args, exec) {
+      const cwd = workspaceOf(ctx, args, exec)
+      const from = resolveWorkspacePath(cwd, String(args.from))
       if (!existsSync(from)) throw new Error(`找不到剧本: ${from}`)
       const text = (await fs.readFile(from, 'utf-8')).replace(/^\uFEFF/, '')
       let durationSec = typeof args.durationSec === 'number' ? args.durationSec : 0
@@ -436,13 +437,13 @@ export function registerTools(ctx: Context, configOf: () => PluginConfig): void 
       schema: { type: 'json' },
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
     },
-    async execute(args) {
-      const cwd = cwdOf(args)
+    async execute(args, exec) {
+      const cwd = workspaceOf(ctx, args, exec)
       const kind = String(args.kind)
-      const from = path.resolve(String(args.from))
+      const from = resolveWorkspacePath(cwd, String(args.from))
       if (!existsSync(from)) throw new Error(`找不到输入文件: ${from}`)
-      const outRaw = path.resolve(String(args.out))
-      const video = args.video ? path.resolve(String(args.video)) : undefined
+      const outRaw = resolveWorkspacePath(cwd, String(args.out))
+      const video = args.video ? resolveWorkspacePath(cwd, String(args.video)) : undefined
       const formats = String(args.format ?? (kind === 'script' ? 'docx' : 'xlsx'))
         .split(',')
         .map((s) => s.trim())
@@ -535,6 +536,7 @@ export function registerTools(ctx: Context, configOf: () => PluginConfig): void 
 
   ctx.tools.register(defineTool({
     name: 'bcc_master',
+    isConcurrencySafe: () => true,
     description: 'Return 山之音 (or other) methodology text to use as an analysis framework. Ignore interactive-flow rules in the text.',
     parameters: {
       id: { type: 'string', description: 'Master id or name; omit with list=true' },
@@ -548,7 +550,7 @@ export function registerTools(ctx: Context, configOf: () => PluginConfig): void 
         return [{ type: 'text', text: typeof rec.text === 'string' ? rec.text : JSON.stringify(value) }]
       },
     },
-    async execute(args) {
+    async execute(args, exec) {
       if (args.list) {
         return asJson({ masters: listMasters().map((m) => ({ id: m.id, name: m.name, description: m.description })) })
       }
@@ -563,14 +565,15 @@ export function registerTools(ctx: Context, configOf: () => PluginConfig): void 
 
   ctx.tools.register(defineTool({
     name: 'bcc_project_list',
+    isConcurrencySafe: () => true,
     description: 'List 包拆拆 projects in the workspace .dsh-bcc/projects directory.',
     parameters: { cwd: { type: 'string' } },
     output: {
       schema: { type: 'json' },
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
     },
-    async execute(args) {
-      const projects = await listProjects(cwdOf(args))
+    async execute(args, exec) {
+      const projects = await listProjects(workspaceOf(ctx, args, exec))
       return asJson({
         projects: projects.map((p) => ({
           id: p.id,
@@ -587,6 +590,7 @@ export function registerTools(ctx: Context, configOf: () => PluginConfig): void 
 
   ctx.tools.register(defineTool({
     name: 'bcc_project_open',
+    isConcurrencySafe: () => true,
     description: 'Load one 包拆拆 project including shot list.',
     parameters: {
       projectId: { type: 'string', required: true },
@@ -596,8 +600,8 @@ export function registerTools(ctx: Context, configOf: () => PluginConfig): void 
       schema: { type: 'json' },
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
     },
-    async execute(args) {
-      return asJson(await loadProject(String(args.projectId), cwdOf(args)))
+    async execute(args, exec) {
+      return asJson(await loadProject(String(args.projectId), workspaceOf(ctx, args, exec)))
     },
   }))
 }

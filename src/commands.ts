@@ -1,31 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-commands'
 import { SCRIPT_COMMAND, STORYBOARD_COMMAND } from './command-names.js'
-
-interface CommandInvocation {
-  readonly rawInput: string
-}
-
-interface CommandResult {
-  kind: 'success' | 'error'
-  text?: string
-}
-
-interface CommandDefinition {
-  readonly name: string
-  readonly description: string
-  readonly input?: { readonly hint: string; readonly images?: boolean }
-  readonly handler: (invocation: CommandInvocation) => CommandResult | Promise<CommandResult>
-}
-
-interface CommandsLike {
-  register(definition: CommandDefinition): unknown
-}
-
-declare module '@deepseek-ai/cordis' {
-  interface Context {
-    commands: CommandsLike
-  }
-}
 
 export function registerBccCommands(ctx: Context): void {
   ctx.inject(['commands'], (commandCtx) => {

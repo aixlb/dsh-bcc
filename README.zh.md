@@ -17,7 +17,7 @@
 
 在 DSH 里使用包拆拆，安装本仓库即可。桌面版和 CLI 从 `bcc` 获取；插件运行无需安装它们。插件保留本地视频处理模块，GitHub 安装无需另行检出主仓库，也不依赖私有包。
 
-推荐模型：**`deepseek-v4-flash-vision-exp`**。当前模型不能看图时，会提示你在 DSH 模型选择器里切换；**不会强制改默认模型**。
+在 DSH 模型选择器中选择**支持图片输入（image）的模型**，可用模型以当前账号目录为准。`deepseek-v4-flash-vision-exp` 仅在账号仍提供时作为参考。插件按本次工具调用所属会话的实际模型能力检查；不能看图时提示切换，**不会强制改默认模型**。
 
 ## 安装
 
@@ -39,7 +39,15 @@ npx @deepseek-ai/dsh plugin --profile web add github:aixlb/dsh-bcc
 
 ## 兼容性
 
+`0.1.7` 适配并测试 **DSH `0.2.0-rc.2`（npm `latest`）和 `0.2.1-rc.2`（npm `next`）**，版本核对日期为 2026-10-18。安装清单同时声明 `engines.dsh` 和 DSH 工具 peer 范围，兼容新旧两种插件检查方式。旧版 `0.1.x` 不在本次支持范围内。
+
+普通 `npx @deepseek-ai/dsh` 当前仍获取 `0.2.0-rc.2`。使用候选版时明确指定 `npx @deepseek-ai/dsh@0.2.1-rc.2`，安装插件和启动 `web` 使用同一个 DSH 版本。
+
 安装地址继续使用 `github:aixlb/dsh-bcc`，命令和工具保留原来的 `bcc` 名称。现有工作区中的 `.dsh-bcc/projects` 项目、上传的视频和面板偏好设置继续使用。插件不会迁移桌面版或 CLI 的项目，也不会修改当前会话模型。
+
+面板直接绑定所属会话；上传完成后即使用户已切换会话，拆解请求仍发往原会话。工具默认跟随会话工作目录，支持新版 `working_directory`，相对输入和导出路径也在该目录下解析。探测、读帧、覆盖自查、方法论和项目查询允许 DSH 并行调度；切镜、项目修改和导出保留顺序执行。工具保留规范 JSON 与图片输出，支持 Native / PTC 工具呈现方式。
+
+新版功能的接入评估见 [docs/DSH_COMPATIBILITY.md](./docs/DSH_COMPATIBILITY.md)。
 
 ## 开发
 
@@ -48,6 +56,11 @@ npx @deepseek-ai/dsh plugin --profile web add github:aixlb/dsh-bcc
 ```bash
 npm ci
 npm run check
+
+# 验证另一受支持版本；不修改 package.json 或 lockfile
+npm run compat:install -- 0.2.0-rc.2
+npm run check
+npm ci
 ```
 
 `check` 执行 TypeScript 检查、测试和安装包预检。`npm run build` 在 `lib/` 生成服务端和浏览器入口；`npm pack` 生成包含提示词、DSH skills 和 Cordis 配置的安装包。从 GitHub 安装时，`prepare` 也会自动构建插件。
