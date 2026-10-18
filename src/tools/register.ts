@@ -199,7 +199,7 @@ export function registerTools(ctx: Context, configOf: () => PluginConfig): void 
   ctx.tools.register(defineTool({
     name: 'bcc_sample_script',
     description:
-      'Dense still sampling for 拆剧本. Pulls several frames inside each shot (not just the cut) so plot inside long shots is not dropped. Call this AFTER bcc_shots, BEFORE reading frames for a script. Then walk bcc_read_frames source=script until remaining=0.',
+      'Optional dense still sampling inside smart/scene shots for 拆剧本 or existing projects. Call AFTER bcc_shots, then walk bcc_read_frames source=script until remaining=0. The default interval script pipeline already samples uniformly: use source=shots directly without this tool.',
     parameters: {
       projectId: { type: 'string', required: true },
       intervalSec: { type: 'number', description: 'Target seconds between samples inside a shot (default 1.5)' },
@@ -249,10 +249,10 @@ export function registerTools(ctx: Context, configOf: () => PluginConfig): void 
   ctx.tools.register(defineTool({
     name: 'bcc_read_frames',
     description:
-      `Send video stills to the current vision model in small batches (max ${MAX_READ_FRAMES}). For 拆剧本 use source=script AFTER bcc_sample_script, and KEEP CALLING with the returned nextFrom until remaining=0. Default source=shots is one frame per cut (storyboard only). Never skip the rest of the timeline.`,
+      `Send video stills to the current vision model in small batches (max ${MAX_READ_FRAMES}). Use source=shots for 拆分镜 and the default interval 拆剧本 pipeline. Use source=script only AFTER optional bcc_sample_script on smart/scene shots. KEEP CALLING with the returned nextFrom until remaining=0. Never skip the rest of the timeline.`,
     parameters: {
       projectId: { type: 'string', required: true },
-      source: { type: 'string', enum: ['shots', 'script'], description: 'shots = one keyframe per cut (分镜). script = dense 拆剧本 samples from bcc_sample_script.' },
+      source: { type: 'string', enum: ['shots', 'script'], description: 'shots = one keyframe per cut (分镜 or interval 拆剧本). script = optional dense samples from bcc_sample_script.' },
       from: { type: 'number', description: '1-based start index (default 1)' },
       count: { type: 'number', description: `How many stills this batch (default 6, max ${MAX_READ_FRAMES})` },
       indices: { type: 'array', items: { type: 'number' }, description: 'Explicit 1-based indexes; overrides from/count' },
@@ -302,7 +302,7 @@ export function registerTools(ctx: Context, configOf: () => PluginConfig): void 
       if (source === 'script') {
         const samples = project.scriptSamples ?? []
         if (!samples.length) {
-          throw new Error('还没有剧本采样帧。拆剧本请先调用 bcc_sample_script，不要只用每镜一张切点图。')
+          throw new Error('还没有密集剧本采样帧。间隔拆剧本请使用 source=shots；smart/scene 项目需要密集采样时，请先调用 bcc_sample_script。')
         }
         items = samples.map((s: ScriptSample) => {
           const shot = project.shots.find((x) => x.index === s.shotIndex)
@@ -414,7 +414,7 @@ export function registerTools(ctx: Context, configOf: () => PluginConfig): void 
         ...coverage,
         instruction: coverage.complete
           ? '覆盖自查通过，可以 bcc_export。'
-          : '未通过。对每个 gaps[] 时间段，用 bcc_read_frames source=script 找到落在该区间的采样帧补看，把缺失场景写进剧本后再跑一次本工具。',
+          : '未通过。对每个 gaps[] 时间段，用 bcc_read_frames 找到落在该区间的采样帧补看（间隔拆剧本用 source=shots，bcc_sample_script 密集采样用 source=script），把缺失场景写进剧本后再跑一次本工具。',
       })
     },
   }))

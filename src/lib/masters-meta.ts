@@ -26,7 +26,7 @@ export const BUILTIN_MASTERS: ScriptMasterMeta[] = [
     "description": "导演方法论：叙事目的分析 / 节奏规划 / 镜头设计",
     "author": "@山音",
     "github": "https://github.com/Shanyin-ai/shanyin-screenwriting-master",
-    "xiaohongshu": "https://www.xiaohongshu.com/user/profile/61920f2f000000001000b970?xsec_token=AB1me_VwRGdEr0uWhL03On8fxSykHj2TJqUP7VO5V9ytM%3D&xsec_source=pc_search",
+    "xiaohongshu": "https://www.xiaohongshu.com/user/profile/61920f2f000000001000b970",
     "promo": "联系山音，可以购买专业级的剧本解析方案！"
   }
 ]
