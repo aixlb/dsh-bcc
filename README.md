@@ -17,7 +17,7 @@ The plugin owns ffmpeg cut detection, keyframes, and export (docx / xlsx / html)
 
 Install this repository to use 包拆拆 inside DSH. The desktop application and CLI are available from `bcc`; they are not required to install or run this plugin. This plugin keeps its video-processing modules locally so a GitHub installation does not depend on a checkout or a private package from `bcc`.
 
-Select a model whose DSH catalog declares **image input**. Availability follows your account's current catalog; `deepseek-v4-flash-vision-exp` is an example only if it is still offered. The plugin checks the route actually producing the tool call and **prompts you to switch** if it is text-only. It never rewrites your default model.
+Add or select a model whose DSH catalog declares **image input**, such as Gemini 4 Argon (`gemini-4-argon`), DeepSeek V4.1 Flash 1017 (`deepseek-flash`), or Kimi K3.1 Pro (`kimi-k3.1-pro`). Availability follows your account's current catalog. The plugin checks the route actually producing the tool call and **prompts you to switch** if it is text-only. It never rewrites your default model. See the [model configuration guide](./docs/MODELS.md) for setup and maintenance.
 
 ## Install
 

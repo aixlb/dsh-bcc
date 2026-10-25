@@ -142,6 +142,22 @@ test('real DSH tool pipeline registers, renders image references, and exports re
   const frames = await invoke('bcc_read_frames', { cwd, projectId: project.id, source: 'shots' })
   assert.equal(frames.isError, false, JSON.stringify(frames))
   assert.equal(frames.content.filter((block) => block.type === 'image').length, 1)
+  ctx.provide('llm', {
+    async resolveModelInfo(provider: string, model: string) {
+      assert.equal(provider, 'session-provider')
+      return { inputModalities: model === 'text-only' ? ['text'] : ['text', 'image'] }
+    },
+  } as unknown as Context['llm'])
+  for (const model of ['gemini-4-argon', 'deepseek-flash', 'kimi-k3.1-pro', 'text-only']) {
+    await t.test(`session model ${model} uses the host's declared image capability`, async () => {
+      const result = await ctx.tools.execute({
+        name: 'bcc_read_frames', arguments: { cwd, projectId: project.id, source: 'shots' },
+        callId: ToolCallId(model), signal: new AbortController().signal, agent: fakeAgent(cwd, model),
+      })
+      assert.equal(result.isError, model === 'text-only', JSON.stringify(result))
+      assert.equal(result.content.filter((block) => block.type === 'image').length, model === 'text-only' ? 0 : 1)
+    })
+  }
   const list = await invoke('bcc_project_list', { cwd })
   assert.equal(list.isError, false)
   assert.match(JSON.stringify(list.value), new RegExp(project.id))

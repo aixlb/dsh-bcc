@@ -1,11 +1,13 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-llm'
+import modelExamples from './model-catalog.json' with { type: 'json' }
 
-export const RECOMMENDED_MODEL = 'deepseek-v4-flash-vision-exp'
+// 仅供切换提示展示；实际可用性与图片能力始终读取 DSH 当前模型目录。
+export const MODEL_EXAMPLES = modelExamples
 
 export const VISION_REQUIRED_MESSAGE =
-  `当前会话模型不支持图片输入，无法看关键帧。请在 DSH 模型选择器切换到标明支持 image 的模型（如账号仍提供的 ${RECOMMENDED_MODEL}）。模型可用性以当前账号目录为准。包拆拆不会自动改你的默认模型。`
+  `当前会话模型不支持图片输入，无法看关键帧。请在 DSH 模型设置中添加或选择支持 image 的模型，例如 ${MODEL_EXAMPLES.map((model) => `${model.label}（${model.id}）`).join('、')}。模型可用性以当前账号目录为准。包拆拆不会自动改你的默认模型。`
 
 /**
  * Best-effort: true / false when the live LLM catalog is inspectable, null if unknown.

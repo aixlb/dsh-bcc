@@ -1,6 +1,6 @@
 {
   "name": "dsh-bcc",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "包拆拆 for DeepSeek Harness: video → script / storyboard / style guide. Uses the current session vision model; never ships its own API keys.",
   "license": "MIT",
   "type": "module",
@@ -24,7 +24,9 @@
     "THIRD_PARTY_NOTICES.md",
     "README.md",
     "README.zh.md",
-    "docs/DSH_COMPATIBILITY.md"
+    "CHANGELOG.md",
+    "docs/DSH_COMPATIBILITY.md",
+    "docs/MODELS.md"
   ],
   "engines": {
     "node": "^22.19.0 || >=24.0.0",
